@@ -61,7 +61,11 @@ AutoTuner-for-Ascend-GEMM/
 直接通过入口脚本，设定目标矩阵规模及搜索代数进行自动寻优：
 
 ```bash
-python src/bo_tuner.py --matrix_size 4096 --max_iter 50 --seed 42
+cd AutoTuner-for-Ascend-GEMM/src
+```
+
+```bash
+python bo_tuner.py --matrix_size 4096 --max_iter 50 --seed 42
 ```
 
 ### 命令参数说明 ###
