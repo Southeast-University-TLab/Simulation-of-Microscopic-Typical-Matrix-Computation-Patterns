@@ -6,7 +6,7 @@
 
 
 
-本仓库包含两个相互协同的研究方向：
+本仓库包含两个相互协同的研究方向，可以分别独立配置环境和运行：
 
 
 
@@ -29,6 +29,7 @@
 + AutoTuner：在真实硬件上搜索接近或突破仿真预测性能的算子配置。
 
 ---
+<img width="865" height="466" alt="image" src="https://github.com/user-attachments/assets/8a2fd679-83e4-4dbf-8289-6ac60915b8d3" />
 
 
 ## Ⅰ.SimNPU
@@ -41,7 +42,7 @@
 
 <p>3. 方法：基于NPU多层硬件结构模型分批次建模算法模块：NPU多层硬件结构模块、矩阵分块策略、分批次调度机制、双缓冲数据传输优化、各层级带宽效率模型、计算与传输的延迟计算、FixPipe层的简化处理。随着深度学习模型对算力需求的指数级增长，NPU（神经网络处理器）作为专用加速硬件，其架构设计与运算效率的匹配性成为性能优化的核心。基于 NPU 多层硬件结构的分批次建模算法，通过精准建模硬件层级交互、矩阵分块策略与批次调度逻辑，可量化不同场景下的计算延迟与带宽利用率，为算子优化与硬件资源配置提供可靠的依据。该算法尤其关注矩阵运算中数据在多级存储与计算核心间的流动特性，通过分批次并行调度实现计算与传输的高效重叠，从而贴近真实硬件的执行行为。
 
-![alt text](SimNPU/image.png)
+
 
 - 3.1多层硬件结构建模NPU的硬件架构以 计算核心 + 多级存储 为核心约束： 
     + 计算核心层：由 24 个达芬奇核心组成，每个核心包含 Cube 计算阵列，主要执行矩阵乘加操作。通过与真实 aic\_mac\_time 对比，计算效率拟合为 0.97，推测来自 L0 分块和调度带来的固定开销。 
@@ -73,13 +74,41 @@
 
 <p>4. 结果
 
-![alt text](SimNPU/image-3.png)
+<img width="759" height="258" alt="image" src="https://github.com/user-attachments/assets/d57e18dd-16b5-440f-ae5c-394a0fa77f6f" />
 
-![alt text](SimNPU/image-2.png)
+
+<img width="1020" height="123" alt="image" src="https://github.com/user-attachments/assets/0b77f5c7-78e1-4800-b594-5664a340f2b0" />
+
+### 目录结构说明 ###
+
+```text
+SimNPU/
+├── src/                        # 核心源代码目录
+│   ├── new_matmul_threemode.py # 三模矩阵乘法核心逻辑实现
+│   ├── test_new_matmul_threemode.py # 算子测试与性能评估执行脚本
+│   ├── hardware.py             # NPU 硬件架构建模与参数定义
+│   ├── operators.py            # 计算算子（Operator）基类与定义
+│   ├── modules.py              # 通用功能模块与组件
+│   └── utils.py                # 辅助工具函数（数据解析、路径处理等）
+├── data/                       # 实验数据与配置文件
+│   ├── npu_910B1.json          # 目标硬件（如昇腾 910B1）规格配置文件
+│   ├── OUT2L1_efficiency.csv   # 算子效率分析数据（含 Roofline 模型数据）
+│   ├── 101 个矩阵_Input_Shapes.csv # 批量测试矩阵的维度定义表
+│   ├── 矩阵向量乘维度.csv        # 针对 GEMV 操作的维度定义
+│   └── I12L0A_efficiency.csv   # 不同流水级路径的效率测试记录
+├── image/                      # 性能可视化图表
+│   ├── image.png               # 算子性能分布图
+│   └── image-1.png             # 效率对比分析图1
+│   └── image-2.png             # 效率对比分析图2
+
+├── requirements.txt            # 项目 Python 依赖列表
+└── README.md                   # 项目使用说明文档
+
+```
 
 ### 代码文件说明 ###
 
-- test\_new\_matmul\_threemode.py: 测试执行入口。支持多进程并行测试多个矩阵形状（MNK），并输出 Roofline 估算与实际仿真搜索后的性能数据。
+**src/test\_new\_matmul\_threemode.py**: 测试执行入口。支持多进程并行测试多个矩阵形状（MNK），并输出 Roofline 估算与实际仿真搜索后的性能数据。
     + 分三种模式（各一个分支）：
 一种是fast,mnk那些很少维度里选；
 一种是exhaustive,穷举16-16000（但是各维度L1 tile上限改成小于该维度（M/N/K的原始值）的16的倍数的最大值）；
@@ -87,38 +116,59 @@
 
     + 使用方法
 ```bash
+cd SimNPU/src
+```
+
+```bash
 python test_new_matmul_threemode.py --mode fast
 python test_new_matmul_threemode.py --mode bayes --n\_calls 100
 python test_new_matmul_threemode.py --mode exhaustive
 ```
-- hardware.py: 硬件规格配置。定义了 AI Core 的核心数、时钟频率、各级存储（L1, L2, L0, UB 等）的容量、最小访问粒度以及各级路径的理论带宽和模拟效率曲线。它是整个仿真系统的硬件基础。
-- modules.py: 底层仿真模块。实现了计算模块（ComputeModule）、IO 传输模块（IOModule）和缓存管理模块（L2CacheManager）。通过线性插值等方式模拟实际硬件在不同负载下的效率表现。
-- new\_matmul\_threemode.py: 核心算子实现。包含了 Matmul 类及其性能仿真模型。它能够根据硬件参数计算 Roofline 模型估算值，并通过 simulate 方法详细模拟矩阵分块（Tiling）在硬件上的执行周期。支持三种搜索最佳分块策略的模式：fast、exhaustive 和 bayes。
-- operators.py: 算子基类定义。定义了所有算子的通用基类 Operator，并实现了基础的张量变换算子，如 Reshape（形状变换）、Concat（张量拼接）和 Transpose（维度转置），用于构建计算图。
-- utils.py: 基础工具库。定义了 Tensor 类和 DataType（如 fp16, int8）等基础数据结构，并提供了计算张量大小、查找约数等辅助函数。
+
+**src/hardware.py**: 硬件规格配置。定义了 AI Core 的核心数、时钟频率、各级存储（L1, L2, L0, UB 等）的容量、最小访问粒度以及各级路径的理论带宽和模拟效率曲线。它是整个仿真系统的硬件基础。
+
+**src/modules.py**: 底层仿真模块。实现了计算模块（ComputeModule）、IO 传输模块（IOModule）和缓存管理模块（L2CacheManager）。通过线性插值等方式模拟实际硬件在不同负载下的效率表现。
+
+**src/new\_matmul\_threemode.py**: 核心算子实现。包含了 Matmul 类及其性能仿真模型。它能够根据硬件参数计算 Roofline 模型估算值，并通过 simulate 方法详细模拟矩阵分块（Tiling）在硬件上的执行周期。支持三种搜索最佳分块策略的模式：fast、exhaustive 和 bayes。
+
+**src/operators.py**: 算子基类定义。定义了所有算子的通用基类 Operator，并实现了基础的张量变换算子，如 Reshape（形状变换）、Concat（张量拼接）和 Transpose（维度转置），用于构建计算图。
+
+**src/utils.py**: 基础工具库。定义了 Tensor 类和 DataType（如 fp16, int8）等基础数据结构，并提供了计算张量大小、查找约数等辅助函数。
 
 ### 数据与配置文件说明 ###
 
 1. 性能效率曲线 (CSV 文件)
 这些文件用于 new\_matmul\_threemode.py 中的仿真逻辑，通过查找不同数据量（Traffic Size）对应的效率因子，使仿真结果更贴近真实硬件表现：
- + OUT2L1\_efficiency.csv: 用于模拟 DRAM 到 L1 缓存（或输出写回）的带宽效率曲线。
- + OUT2L1\_efficiency - roofline.csv: 专门用于 Roofline 模型计算时参考的带宽效率数据。
- + l12L0A\_efficiency.csv: 模拟数据从 L1 缓存搬运到计算单元 L0A 缓冲区时的效率。
- + l12L0B\_efficiency.csv: 模拟数据从 L1 缓存搬运到计算单元 L0B 缓冲区时的效率。
+
+   `data/OUT2L1\_efficiency.csv`: 用于模拟 DRAM 到 L1 缓存（或输出写回）的带宽效率曲线。
+
+   `data/OUT2L1\_efficiency - roofline.csv`: 专门用于 Roofline 模型计算时参考的带宽效率数据。
+
+   `data/l12L0A\_efficiency.csv`: 模拟数据从 L1 缓存搬运到计算单元 L0A 缓冲区时的效率。
+
+   `data/l12L0B\_efficiency.csv`: 模拟数据从 L1 缓存搬运到计算单元 L0B 缓冲区时的效率。
 
 2. 测试任务与维度 (CSV 文件)
 这些文件定义了用于性能评估的矩阵形状（M, N, K）：
- + 101 个矩阵\_Input\_Shapes.csv: 包含 101 组典型的矩阵乘法维度，用于大批量自动化测试。
- + 矩阵向量乘维度.csv: 专门针对矩阵-向量乘（GEMV）场景的测试维度定义。
+
+   `data/101 个矩阵\_Input\_Shapes.csv`: 包含 101 组典型的矩阵乘法维度，用于大批量自动化测试。
+   
+   `data/矩阵向量乘维度.csv`: 专门针对矩阵-向量乘（GEMV）场景的测试维度定义。
+
 3. 硬件规格 (JSON 文件)
- + npu\_910B1.json: 包含了昇腾 NPU (910B1) 的详细硬件参数定义（如频率、带宽、各级存储容量等），可供仿真器加载或作为硬件配置参考。
+
+   `data/npu\_910B1.json`: 包含了昇腾 NPU (910B1) 的详细硬件参数定义（如频率、带宽、各级存储容量等），可供仿真器加载或作为硬件配置参考。
 
 ### 测试执行模式 ###
 
 ```bash
-python test\_new\_matmul\_threemode.py --mode fast
-python test\_new\_matmul\_threemode.py --mode bayes --n\_calls 100
-python test\_new\_matmul\_threemode.py --mode exhaustive
+cd SimNPU/src
+```
+
+```bash
+python test_new_matmul_threemode.py --mode fast
+python test_new_matmul_threemode.py --mode bayes --n\_calls 100
+python test_new_matmul_threemode.py --mode exhaustive
 ```
 
 ### 环境依赖 ###
@@ -137,49 +187,100 @@ Python 3.9+
 
 1. **摘要**：这是一种基于贝叶斯优化 (Bayesian Optimization) 的自动化张量调度与分块调优工具，能够在真实昇腾硬件上动态搜索最高效的 GEMM 算子执行配置。
 
-2. **背景**：在 `SimNPU` 仿真器对底层微观结构（如 L1 和 L0 的交互、缓存流水线机制）进行详尽建模并预测性能天花板 (Roofline) 的基础上，实际硬件在不同切分策略（Tiling）下的表现仍存在大量的“暗室盲区”与编译约束。传统手写算子难以穷尽最优解，因而我们需要在真实 NPU 上，通过智能搜索算法找到能最贴近仿真器预测上限的实际代码配置，以验证和协同仿真结论。
+2. **背景**：在 `SimNPU` 仿真器对底层微观结构（如 L1 和 L0 的交互、缓存流水线机制）进行详尽建模并预测性能天花板 (Roofline) 的基础上，实际硬件在不同切分策略（Tiling）下的表现仍存在大量的“暗室盲区”与编译约束。传统手写算子难以穷举最优解，因而我们需要在真实 NPU 上，通过智能搜索算法找到能最贴近仿真器预测上限的实际代码配置，以验证和协同仿真结论。
 
 3. **方法**：
    本项目采用 **贝叶斯优化 (BO) + JIT 重编译** 结合的方法，在高度复杂的离散空间内寻找最优张量原语搭配：
-   
-   - **参数空间建模**：基于真实硬件维度，将 L1/L0 分块大​​小 (Tile M/N/K)、指令级并行选项 (Unit, Shuffle_K, ABBA) 及矩阵排布 Swizzle 参数共同纳入多维搜索空间。
+
+   - **参数空间建模**：基于真实硬件维度，将 L1/L0 分块大小 (Tile M/N/K)、指令级并行选项 (Unit, Shuffle_K, ABBA) 及矩阵排布 Swizzle 参数共同纳入多维搜索空间。
    - **硬约束前置过滤**：利用硬件底层限制条件（如 L1 块内需含整数个 L0 块、片上 SRAM 容量上限），在生成编译代码前剔除无效域，极大节约了算力。
    - **主动性能寻优**：通过高斯过程 (Gaussian Process) 拟合每次真实上板执行返回的性能数据 (GFLOPS) 建立代理模型，指导下一次采样方向，用少数几十代迭代逼近逼近或超越人工经验优化的极限性能。
 
+### 目录结构说明 ###
+
+```text
+AutoTuner-for-Ascend-GEMM/
+├── src/                    # 核心源代码
+│   ├── bo_tuner.py         # 贝叶斯搜索执行入口
+│   ├── jit_runner.py       # JIT 编译与执行引擎
+│   ├── plot_bo_analysis.py # 结果看板渲染脚本
+│   └── custom_kernel/      # C++ 算子模板目录
+│       └── tunable_gemm_template.cpp
+├── data/                   # 实验数据与配置记录
+│   ├── example_config.json # 最佳搜索结果示例
+│   └── log/                # 详细迭代历史日志 (自动生成)
+├── image/                  # 可视化分析图表
+│   ├── bo_convergence_curve.png
+│   └── bo_performance_distribution.png
+├── requirements.txt        # Python 依赖
+└── README.md               # 项目自述文件
+```
+
 ### 代码文件说明 ###
 
-**bo_tuner.py**: 贝叶斯搜索执行入口。基于 GPyOpt 实现代理模型和采集函数（EI）。负责处理多维离散变量和惩罚过滤机制，驱动整个调参实验并输出调优趋势表和历史 JSON 文件。
+**src/bo_tuner.py**: 贝叶斯搜索执行入口。基于 GPyOpt 实现代理模型和采集函数（EI）。负责处理多维离散变量和惩罚过滤机制，驱动整个调参实验并输出调优趋势表和历史 JSON 文件。
 
-**jit_runner.py**: 即时编译与性能评估引擎。它接收上层传递的切割参数字典，动态生成对应的算子代码，并调用底层的 Ascend CATLASS 环境，下板运行得到真实的 TFLOPS 数据和精确执行耗时。
+**src/jit_runner.py**: 即时编译与性能评估引擎。它接收上层传递的切割参数字典，动态生成对应的算子代码，并调用底层的 Ascend CATLASS 环境，下板运行得到真实的 TFLOPS 数据和精确执行耗时。
 
-**tunable_gemm_template.cpp**: C++ 算子模板。它是专门为昇腾 NPU 适配的 GEMM 计算描述，其中埋入了诸多编译时常量占位符（如 `{{TILE_M}}`、`{{L0_K}}`），在运行期被脚本渲染为实际算子。
+**src/custom_kernel/tunable_gemm_template.cpp**: C++ 算子模板。它是专门为昇腾 NPU 适配的 GEMM 计算描述，其中埋入了诸多编译时常量占位符（如 `{{TILE_M}}`、`{{L0_K}}`），在运行期被脚本渲染为实际算子。
+
+**src/plot_bo_analysis.py**: 结果可视化工具。读取自动搜索和执行的历史日志文件，自动生成 BO 迭代调优的性能收敛曲线以及所有采样点的性能分布直方图。
 
 ### 数据与配置文件说明 ###
 
 1. **结果文件 (JSON 文件)**
    这些文件用于持久化记录每一次编译上板的运行轨迹，便于回溯调参链路和寻找历史极值：
 
-   `example_config.json`: 存储当前矩阵形状下搜寻到的突破硬件记录的 Best Param 配置字典，以及最终收敛时的峰值 TFLOPS。
-   `optimization_history.json`: (执行后生成) 详细记录 BO 每一次迭代尝试过的切分结构及它们对应的运算耗时，即使编译失败的 Invalid Configurations 也会被详细记录用于边界反思。
+   `data/example_config.json`: 存储当前矩阵形状下搜寻到的突破硬件记录的 Best Param 配置字典，以及最终收敛时的峰值 TFLOPS。
+   `data/log/optimization_history.json`: (执行后生成) 详细记录 BO 每一次迭代尝试过的切分结构及它们对应的运算耗时，即使编译失败的 Invalid Configurations 也会被详细记录用于边界反思。
 
 2. **自动渲染分析图表 (PNG 文件)**
-   在项目目录下存放了基于运行历史自动化生成的学术可视化图表，用以向团队和仿真器模块提供对比佐证。
+   在项目 `image/` 目录下存放了基于运行历史自动化生成的学术可视化图表，用以向团队和仿真器模块提供对比佐证。
 
 ### 测试执行模式 ###
 
 直接通过入口脚本，设定目标矩阵规模及搜索代数进行自动寻优：
+
 ```bash
-python bo_tuner.py --matrix_size 4096 --max_iter 50 --seed 42
+python src/bo_tuner.py --matrix_size 4096 --max_iter 50 --seed 42
 ```
 
-### 命令参数说明
+### 命令参数说明 ###
+
 - `--matrix_size`: 目标优化的 GEMM 矩阵尺寸 (M=N=K)，影响底层 `tunable_gemm_template` 的运行，默认为 `4096`。
 - `--max_iter`: 贝叶斯搜索的最大迭代次数，默认为 `50` (推荐基于问题复杂度设置为 30~100)。
 - `--seed`: 固定随机数种子，用于重现实验结果。
 
+### 硬件与软件环境规格 ###
+
+为了确保调优器能够正常进行 JIT 编译与性能评估，建议在以下环境下运行：
+- **硬件平台**：华为昇腾 (Huawei Ascend) **910B** 系列 NPU。
+- **固件与驱动**：匹配 910B 的最新商用版本。
+- **架构版本**：CANN **8.2** (或更高版本，以确保原生支持高性能交互)。
+- **算子库依赖**：CATLASS (用于生成高效的 NPU 算子模板)。
 
 ### 环境依赖 ###
 
-Python 3.9+
-其它见 `requirements.txt`
+Python 3.9+  
+其它见 `requirements.txt`  
+当前宿主机需已安装完整的 Ascend Toolkit。
 
+**关于 CATLASS 环境配置：**
+您必须在此相同根目录下克隆或链接 `catlass` 仓库。默认情况下，`jit_runner.py` 会在当前脚本旁边寻找一个名为 `catlass/` 的文件夹来进行动态编译。
+```bash
+git clone https://github.com/Ascend/catlass.git
+```
+
+如果你需要从头搭建或者将其至于别处，请注意配置您的项目路径像下面这样：
+
+```
+.
+├── catlass/                <-- 昇腾 CATLASS 框架
+├── src/
+│   ├── bo_tuner.py
+│   ├── jit_runner.py
+│   └── custom_kernel/
+├── data/
+├── image/
+└── ...
+```
